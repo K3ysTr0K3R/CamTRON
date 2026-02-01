@@ -23,7 +23,7 @@ An automated tool for detecting surveillance devices(cameras) on networks.
 ### From Source
 
 ```bash
-git clone https://github.com/yourusername/camtron.git
+git clone https://github.com/K3ysTr0K3R/camtron.git
 cd camtron
 go build -o camtron main.go
 ```
@@ -31,7 +31,7 @@ go build -o camtron main.go
 ### Quick Install
 
 ```bash
-go install github.com/yourusername/camtron@latest
+go install github.com/K3ysTr0K3R/camtron@latest
 ```
 
 ---
