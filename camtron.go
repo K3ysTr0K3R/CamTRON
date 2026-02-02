@@ -26,19 +26,20 @@ import (
 
 const maxBodySize = 2 << 20 // 2MB
 
-// Styles
 var (
-	cyan    = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	green   = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	yellow  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	purple  = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
-	red     = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	gray    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	faint = lipgloss.NewStyle().Faint(true)
-	banner  = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("6")).Padding(0, 2)
+	cyan   = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	green  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	yellow = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	purple = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
+	red    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	gray   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	faint  = lipgloss.NewStyle().Faint(true)
+	border = lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("6")).
+		Padding(0, 2)
 )
 
-// Rule defines a fingerprint signature for a camera brand.
 type Rule struct {
 	Brand         string
 	Path          string
@@ -93,11 +94,48 @@ var rules = []Rule{
 	{"xiongmai", "/", "title=`NetSurveillance WEB`", "", false},
 }
 
-// scanResult holds a detection for a single target.
 type scanResult struct {
 	host   string
 	brands []string
 }
+
+// pathCache deduplicates HTTP fetches for the same URL within a scan.
+type pathCache struct {
+	mu    sync.Mutex
+	items map[string]*pathEntry
+}
+
+type pathEntry struct {
+	resp *http.Response
+	body []byte
+	ok   bool
+	once sync.Once
+}
+
+func newPathCache() *pathCache {
+	return &pathCache{items: make(map[string]*pathEntry)}
+}
+
+func (pc *pathCache) get(client *http.Client, url string) (*http.Response, []byte, bool) {
+	pc.mu.Lock()
+	entry, exists := pc.items[url]
+	if !exists {
+		entry = &pathEntry{}
+		pc.items[url] = entry
+	}
+	pc.mu.Unlock()
+
+	entry.once.Do(func() {
+		resp, body, err := fetch(client, url)
+		entry.resp = resp
+		entry.body = body
+		entry.ok = err == nil
+	})
+
+	return entry.resp, entry.body, entry.ok
+}
+
+// --- HTTP helpers ---
 
 func newHTTPClient() *http.Client {
 	return &http.Client{
@@ -123,8 +161,69 @@ func newHTTPClient() *http.Client {
 	}
 }
 
-// expandCIDR expands CIDR notation to individual host IPs, skipping
-// network and broadcast addresses for prefixes with more than 2 hosts.
+func fetch(client *http.Client, url string) (*http.Response, []byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
+	resp.Body.Close()
+
+	return resp, body, nil
+}
+
+func isAlive(client *http.Client, url string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "HEAD", url, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	return true
+}
+
+// --- URL helpers ---
+
+func normalizeURL(target string) string {
+	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
+		return target
+	}
+	return "http://" + target
+}
+
+func displayHost(u string) string {
+	u = strings.TrimPrefix(u, "http://")
+	return strings.TrimPrefix(u, "https://")
+}
+
+func buildRuleURL(base, path string) string {
+	if path == "" || path == "/" {
+		return strings.TrimRight(base, "/")
+	}
+	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(path, "/")
+}
+
+// --- Target expansion ---
+
 func expandCIDR(targets []string) []string {
 	var out []string
 	for _, t := range targets {
@@ -132,21 +231,29 @@ func expandCIDR(targets []string) []string {
 			out = append(out, t)
 			continue
 		}
-		_, ipnet, err := net.ParseCIDR(t)
-		if err != nil {
-			continue
-		}
-		ones, bits := ipnet.Mask.Size()
-		var all []string
-		for ip := ipnet.IP.Mask(ipnet.Mask); ipnet.Contains(ip); incIP(ip) {
-			all = append(all, ip.String())
-		}
-		if (bits-ones) > 1 && len(all) > 2 {
-			all = all[1 : len(all)-1]
-		}
-		out = append(out, all...)
+		ips := cidrToHosts(t)
+		out = append(out, ips...)
 	}
 	return out
+}
+
+func cidrToHosts(cidr string) []string {
+	_, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return nil
+	}
+
+	ones, bits := ipnet.Mask.Size()
+	var all []string
+	for ip := ipnet.IP.Mask(ipnet.Mask); ipnet.Contains(ip); incIP(ip) {
+		all = append(all, ip.String())
+	}
+
+	// Skip network and broadcast for prefixes with > 2 hosts
+	if (bits-ones) > 1 && len(all) > 2 {
+		return all[1 : len(all)-1]
+	}
+	return all
 }
 
 func incIP(ip net.IP) {
@@ -158,102 +265,25 @@ func incIP(ip net.IP) {
 	}
 }
 
-func normalizeURL(target string) string {
-	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
-		return "http://" + target
-	}
-	return target
-}
+// --- Scanning ---
 
-func displayHost(u string) string {
-	u = strings.TrimPrefix(u, "http://")
-	u = strings.TrimPrefix(u, "https://")
-	return u
-}
-
-// fetch performs a GET request and returns the response and body.
-func fetch(client *http.Client, url string) (*http.Response, []byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, nil, err
-	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
-	return resp, body, nil
-}
-
-// isAlive does a quick HEAD to check if the target responds.
-func isAlive(client *http.Client, url string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "HEAD", url, nil)
-	if err != nil {
-		return false
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0")
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-	return true
-}
-
-func buildRuleURL(base string, path string) string {
-	if strings.HasSuffix(base, "/") {
-		return base + strings.TrimPrefix(path, "/")
-	}
-	if path == "" || path == "/" {
-		return base
-	}
-	return base + "/" + strings.TrimPrefix(path, "/")
-}
-
-// scanTarget fingerprints a single target against all rules.
 func scanTarget(client *http.Client, target string) scanResult {
 	url := normalizeURL(target)
-	host := displayHost(url)
 
 	if !isAlive(client, url) {
 		return scanResult{}
 	}
 
-	// Group rules by path to avoid duplicate fetches.
-	type pathData struct {
-		resp *http.Response
-		body []byte
-		ok   bool
+	brands := matchRules(client, url)
+	if len(brands) == 0 {
+		return scanResult{}
 	}
-	pathCache := make(map[string]*pathData)
-	var cacheMu sync.Mutex
 
-	getPath := func(path string) *pathData {
-		fullURL := buildRuleURL(url, path)
+	return scanResult{host: displayHost(url), brands: brands}
+}
 
-		cacheMu.Lock()
-		if pd, found := pathCache[fullURL]; found {
-			cacheMu.Unlock()
-			return pd
-		}
-		// Mark as in-progress to avoid duplicate fetches.
-		pd := &pathData{}
-		pathCache[fullURL] = pd
-		cacheMu.Unlock()
-
-		resp, body, err := fetch(client, fullURL)
-		pd.resp = resp
-		pd.body = body
-		pd.ok = err == nil
-		return pd
-	}
+func matchRules(client *http.Client, baseURL string) []string {
+	cache := newPathCache()
 
 	var detected []string
 	var mu sync.Mutex
@@ -261,79 +291,75 @@ func scanTarget(client *http.Client, target string) scanResult {
 
 	sem := make(chan struct{}, 5)
 
-	for _, rule := range rules {
+	for _, r := range rules {
 		wg.Add(1)
 		go func(r Rule) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			pd := getPath(r.Path)
-			if !pd.ok {
+			fullURL := buildRuleURL(baseURL, r.Path)
+			resp, body, ok := cache.get(client, fullURL)
+			if !ok {
 				return
 			}
-			if evaluateCondition(pd.resp, pd.body, r) {
-				mu.Lock()
-				if !slices.Contains(detected, r.Brand) {
-					detected = append(detected, r.Brand)
-				}
-				mu.Unlock()
+			if !evaluateCondition(resp, body, r) {
+				return
 			}
-		}(rule)
+
+			mu.Lock()
+			if !slices.Contains(detected, r.Brand) {
+				detected = append(detected, r.Brand)
+			}
+			mu.Unlock()
+		}(r)
 	}
 
 	wg.Wait()
-
-	if len(detected) > 0 {
-		return scanResult{host: host, brands: detected}
-	}
-	return scanResult{}
+	return detected
 }
 
-// evaluateCondition checks a single rule's conditions against the
-// HTTP response.
+// --- Condition evaluation ---
+
 func evaluateCondition(resp *http.Response, body []byte, rule Rule) bool {
-	if rule.Exclude != "" {
-		ev := normalize(rule.Exclude, rule.CaseSensitive)
-		if strings.Contains(normalize(string(body), rule.CaseSensitive), ev) {
-			return false
-		}
+	if rule.Exclude != "" && bodyContains(body, rule.Exclude, rule.CaseSensitive) {
+		return false
 	}
 	for _, cond := range strings.Split(rule.Condition, "&&") {
-		parts := strings.SplitN(cond, "=", 2)
-		if len(parts) != 2 {
-			return false
-		}
-		key := strings.TrimSpace(parts[0])
-		val := strings.Trim(parts[1], "` ")
-		val = normalize(val, rule.CaseSensitive)
-
-		switch key {
-		case "title":
-			if !strings.Contains(normalize(extractTitle(body), rule.CaseSensitive), val) {
-				return false
-			}
-		case "body":
-			if !strings.Contains(normalize(string(body), rule.CaseSensitive), val) {
-				return false
-			}
-		case "headers":
-			if !matchHeaders(resp, val, rule.CaseSensitive) {
-				return false
-			}
-		case "md5":
-			if fmt.Sprintf("%x", md5.Sum(body)) != val {
-				return false
-			}
-		case "status_code":
-			if fmt.Sprintf("%d", resp.StatusCode) != val {
-				return false
-			}
-		default:
+		if !checkCondition(resp, body, cond, rule.CaseSensitive) {
 			return false
 		}
 	}
 	return true
+}
+
+func checkCondition(resp *http.Response, body []byte, cond string, caseSensitive bool) bool {
+	parts := strings.SplitN(cond, "=", 2)
+	if len(parts) != 2 {
+		return false
+	}
+
+	key := strings.TrimSpace(parts[0])
+	val := normalize(strings.Trim(parts[1], "` "), caseSensitive)
+
+	switch key {
+	case "title":
+		return strings.Contains(normalize(extractTitle(body), caseSensitive), val)
+	case "body":
+		return strings.Contains(normalize(string(body), caseSensitive), val)
+	case "headers":
+		return matchHeaders(resp, val, caseSensitive)
+	case "md5":
+		return fmt.Sprintf("%x", md5.Sum(body)) == val
+	case "status_code":
+		return fmt.Sprintf("%d", resp.StatusCode) == val
+	default:
+		return false
+	}
+}
+
+func bodyContains(body []byte, substr string, caseSensitive bool) bool {
+	return strings.Contains(normalize(string(body), caseSensitive), normalize(substr, caseSensitive))
 }
 
 func matchHeaders(resp *http.Response, value string, caseSensitive bool) bool {
@@ -362,20 +388,22 @@ func extractTitle(body []byte) string {
 	if err != nil {
 		return ""
 	}
-	var find func(*html.Node) string
-	find = func(n *html.Node) string {
-		if n.Type == html.ElementNode && n.Data == "title" && n.FirstChild != nil {
-			return n.FirstChild.Data
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if t := find(c); t != "" {
-				return t
-			}
-		}
-		return ""
-	}
-	return find(doc)
+	return findTitle(doc)
 }
+
+func findTitle(n *html.Node) string {
+	if n.Type == html.ElementNode && n.Data == "title" && n.FirstChild != nil {
+		return n.FirstChild.Data
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if t := findTitle(c); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// --- I/O helpers ---
 
 func loadTargetsFromFile(path string) ([]string, error) {
 	f, err := os.Open(path)
@@ -383,6 +411,7 @@ func loadTargetsFromFile(path string) ([]string, error) {
 		return nil, err
 	}
 	defer f.Close()
+
 	var targets []string
 	s := bufio.NewScanner(f)
 	for s.Scan() {
@@ -393,83 +422,59 @@ func loadTargetsFromFile(path string) ([]string, error) {
 	return targets, s.Err()
 }
 
+func openCSV(path string, appendMode bool) (*csv.Writer, *os.File, error) {
+	var f *os.File
+	var err error
+
+	if appendMode {
+		f, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	} else {
+		f, err = os.Create(path)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	w := csv.NewWriter(f)
+	if !appendMode {
+		w.Write([]string{"Target", "Brands"})
+		w.Flush()
+	}
+
+	return w, f, nil
+}
+
 func printBanner() {
 	content := green.Render("CamTRON - Camera Scanner") + "\n" +
 		gray.Render("Automated Detection of Surveillance Devices") + "\n" +
 		green.Render("Coded By - K3ysTr0K3R")
-	fmt.Fprintln(os.Stderr, banner.Render(content))
+	fmt.Fprintln(os.Stderr, border.Render(content))
 	fmt.Fprintln(os.Stderr)
 }
 
-func main() {
-	log.SetOutput(io.Discard)
+// --- CLI ---
 
-	printBanner()
-
-	urlFlag := flag.String("u", "", "Scan a single URL")
-	ipFlag := flag.String("ip", "", "Scan a single IP/CIDR")
-	fileFlag := flag.String("f", "", "File with targets (one per line)")
-	threadsFlag := flag.Int("t", 50, "Number of concurrent workers")
-	outputFlag := flag.String("o", "", "Output CSV file (optional)")
-	appendFlag := flag.Bool("append", false, "Append to output CSV instead of overwrite")
-	flag.Parse()
-
+func parseTargets(urlFlag, ipFlag, fileFlag string) ([]string, error) {
 	var targets []string
-	if *urlFlag != "" {
-		targets = append(targets, *urlFlag)
+
+	if urlFlag != "" {
+		targets = append(targets, urlFlag)
 	}
-	if *ipFlag != "" {
-		targets = append(targets, *ipFlag)
+	if ipFlag != "" {
+		targets = append(targets, ipFlag)
 	}
-	if *fileFlag != "" {
-		loaded, err := loadTargetsFromFile(*fileFlag)
+	if fileFlag != "" {
+		loaded, err := loadTargetsFromFile(fileFlag)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, red.Render(fmt.Sprintf("Error opening file: %v", err)))
-			return
+			return nil, err
 		}
 		targets = append(targets, loaded...)
 	}
 
-	if len(targets) == 0 {
-		fmt.Fprintln(os.Stderr, red.Render("Please specify -u, -ip, or -f"))
-		flag.Usage()
-		return
-	}
+	return expandCIDR(targets), nil
+}
 
-	targets = expandCIDR(targets)
-	total := len(targets)
-
-	fmt.Fprintln(os.Stderr, cyan.Render(fmt.Sprintf("Loaded %d targets, scanning with %d workers", total, *threadsFlag)))
-
-	var writer *csv.Writer
-	if *outputFlag != "" {
-		var csvFile *os.File
-		var err error
-		if *appendFlag {
-			csvFile, err = os.OpenFile(*outputFlag, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		} else {
-			csvFile, err = os.Create(*outputFlag)
-		}
-		if err != nil {
-			fmt.Fprintln(os.Stderr, red.Render(fmt.Sprintf("Error opening output: %v", err)))
-			return
-		}
-		defer csvFile.Close()
-		writer = csv.NewWriter(csvFile)
-		if !*appendFlag {
-			writer.Write([]string{"Target", "Brands"})
-			writer.Flush()
-		}
-	}
-
-	client := newHTTPClient()
-	bar := progress.New(progress.WithScaledGradient("#6C8EBF", "#82AAFF"), progress.WithWidth(40))
-
-	var processed atomic.Int64
-	var found atomic.Int64
-	startTime := time.Now()
-
-	// Progress ticker goroutine
+func startProgressTicker(bar progress.Model, total int, processed, found *atomic.Int64) chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(150 * time.Millisecond)
@@ -488,62 +493,113 @@ func main() {
 			}
 		}
 	}()
+	return done
+}
 
-	// Worker pool with simple fan-out
-	jobs := make(chan string, *threadsFlag*2)
-	var resultsMu sync.Mutex
-
+func runWorkers(client *http.Client, targets []string, threads int, writer *csv.Writer, processed, found *atomic.Int64) {
+	jobs := make(chan string, threads*2)
+	var mu sync.Mutex
 	var wg sync.WaitGroup
-	for i := 0; i < *threadsFlag; i++ {
+
+	for i := 0; i < threads; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for target := range jobs {
-				result := scanTarget(client, target)
+				handleTarget(client, target, writer, &mu, found)
 				processed.Add(1)
-
-				if result.host == "" {
-					continue
-				}
-				found.Add(1)
-
-				resultsMu.Lock()
-				// Clear progress line, print result, progress will redraw
-				fmt.Fprint(os.Stderr, "\r\033[K")
-				fmt.Fprintf(os.Stdout, "%s %s %s\n",
-					green.Render("[+]"),
-					yellow.Render(result.host),
-					purple.Render(strings.Join(result.brands, ", ")))
-
-				if writer != nil {
-					writer.Write([]string{result.host, strings.Join(result.brands, ", ")})
-					writer.Flush()
-				}
-				resultsMu.Unlock()
 			}
 		}()
 	}
 
-	// Feed targets
 	for _, t := range targets {
 		jobs <- t
 	}
 	close(jobs)
 	wg.Wait()
+}
+
+func handleTarget(client *http.Client, target string, writer *csv.Writer, mu *sync.Mutex, found *atomic.Int64) {
+	result := scanTarget(client, target)
+	if result.host == "" {
+		return
+	}
+
+	found.Add(1)
+	brands := strings.Join(result.brands, ", ")
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	fmt.Fprint(os.Stderr, "\r\033[K")
+	fmt.Fprintf(os.Stdout, "%s %s %s\n",
+		green.Render("[+]"),
+		yellow.Render(result.host),
+		purple.Render(brands))
+
+	if writer == nil {
+		return
+	}
+	writer.Write([]string{result.host, brands})
+	writer.Flush()
+}
+
+func main() {
+	log.SetOutput(io.Discard)
+	printBanner()
+
+	urlFlag := flag.String("u", "", "Scan a single URL")
+	ipFlag := flag.String("ip", "", "Scan a single IP/CIDR")
+	fileFlag := flag.String("f", "", "File with targets (one per line)")
+	threads := flag.Int("t", 50, "Number of concurrent workers")
+	outputFlag := flag.String("o", "", "Output CSV file (optional)")
+	appendFlag := flag.Bool("append", false, "Append to output CSV instead of overwrite")
+	flag.Parse()
+
+	targets, err := parseTargets(*urlFlag, *ipFlag, *fileFlag)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, red.Render(fmt.Sprintf("Error: %v", err)))
+		return
+	}
+	if len(targets) == 0 {
+		fmt.Fprintln(os.Stderr, red.Render("Please specify -u, -ip, or -f"))
+		flag.Usage()
+		return
+	}
+
+	total := len(targets)
+	fmt.Fprintln(os.Stderr, cyan.Render(fmt.Sprintf("Loaded %d targets, scanning with %d workers", total, *threads)))
+
+	var writer *csv.Writer
+	if *outputFlag != "" {
+		w, f, err := openCSV(*outputFlag, *appendFlag)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, red.Render(fmt.Sprintf("Error opening output: %v", err)))
+			return
+		}
+		defer f.Close()
+		writer = w
+	}
+
+	client := newHTTPClient()
+	bar := progress.New(progress.WithScaledGradient("#6C8EBF", "#82AAFF"), progress.WithWidth(40))
+
+	var processed, found atomic.Int64
+	startTime := time.Now()
+
+	done := startProgressTicker(bar, total, &processed, &found)
+	runWorkers(client, targets, *threads, writer, &processed, &found)
 	close(done)
 
-	// Final progress
 	fmt.Fprintf(os.Stderr, "\r\033[K  %s %s\n",
 		bar.ViewAs(1.0),
 		faint.Render(fmt.Sprintf("%d/%d | found: %d", total, total, found.Load())))
 
 	elapsed := time.Since(startTime)
-	rate := float64(total) / elapsed.Seconds()
-
 	if *outputFlag != "" {
 		fmt.Fprintln(os.Stderr, cyan.Render(fmt.Sprintf("Results saved to %s", *outputFlag)))
 	}
 	fmt.Fprintln(os.Stderr, cyan.Render(fmt.Sprintf(
 		"Scan completed: %d devices from %d targets in %.2fs (%.1f/s)",
-		found.Load(), total, elapsed.Seconds(), rate)))
+		found.Load(), total, elapsed.Seconds(), float64(total)/elapsed.Seconds())))
 }
