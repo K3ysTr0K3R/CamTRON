@@ -1,6 +1,6 @@
-![CamTRON Logo](file_00000000534471f48747ce348ce389fe.png)
-
 # CamTRON - Camera Scanner
+
+![CamTRON Logo](file_00000000534471f48747ce348ce389fe.png)
 
 An automated tool for detecting surveillance devices(cameras) on networks.
 
