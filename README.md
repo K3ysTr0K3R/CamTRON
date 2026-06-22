@@ -1,3 +1,5 @@
+![CamTRON Logo](logo.png)
+
 # CamTRON - Camera Scanner
 
 An automated tool for detecting surveillance devices(cameras) on networks.
