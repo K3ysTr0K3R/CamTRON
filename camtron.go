@@ -69,6 +69,7 @@ var rules = []Rule{
 	{"geovision", "/", "title=`GeoVision`", "", false},
 	{"hikvision", "/", "body=`doc/page/login.asp`", "", false},
 	{"hikvision", "/", "body=`g_szCacheTime`&&body=`iVMS`", "", false},
+	{"hikvision", "/", "headers=`Webs`", "", false},
 	{"hikvision", "/", "headers=`APP-webs`", "", false},
 	{"hikvision", "/", "headers=`DVRDVS-Webs`", "", false},
 	{"hikvision", "/", "headers=`DNVRS-Webs`", "", false},
