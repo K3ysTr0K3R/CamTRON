@@ -6,6 +6,7 @@ import (
 	"crypto/md5"
 	"crypto/tls"
 	"encoding/csv"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,9 +24,10 @@ import (
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/net/html"
+	"gopkg.in/yaml.v3"
 )
 
-const maxBodySize = 2 << 20 // 2MB
+const maxBodySize = 2 << 20
 
 var (
 	cyan   = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
@@ -41,14 +44,14 @@ var (
 )
 
 type Rule struct {
-	Brand         string
-	Path          string
-	Condition     string
-	Exclude       string
-	CaseSensitive bool
+	Brand         string `yaml:"brand"`
+	Path          string `yaml:"path"`
+	Condition     string `yaml:"condition"`
+	Exclude       string `yaml:"exclude"`
+	CaseSensitive bool   `yaml:"case_sensitive"`
 }
 
-var rules = []Rule{
+var defaultRules = []Rule{
 	{"avtech", "/", "title=`::: Login :::`", "", false},
 	{"avtech", "/", "title=`Remote Surveillance`&&title=`Any time & Any where`", "", false},
 	{"avtech", "/nobody/favicon.ico", "md5=`6a7e13b3f9197a383c96618fe32e345a`", "", true},
@@ -100,7 +103,6 @@ type scanResult struct {
 	brands []string
 }
 
-// pathCache deduplicates HTTP fetches for the same URL within a scan.
 type pathCache struct {
 	mu    sync.Mutex
 	items map[string]*pathEntry
@@ -117,7 +119,7 @@ func newPathCache() *pathCache {
 	return &pathCache{items: make(map[string]*pathEntry)}
 }
 
-func (pc *pathCache) get(client *http.Client, url string) (*http.Response, []byte, bool) {
+func (pc *pathCache) get(client *http.Client, url string, maxRetries int) (*http.Response, []byte, bool) {
 	pc.mu.Lock()
 	entry, exists := pc.items[url]
 	if !exists {
@@ -127,7 +129,7 @@ func (pc *pathCache) get(client *http.Client, url string) (*http.Response, []byt
 	pc.mu.Unlock()
 
 	entry.once.Do(func() {
-		resp, body, err := fetch(client, url)
+		resp, body, err := fetchWithRetry(client, url, maxRetries)
 		entry.resp = resp
 		entry.body = body
 		entry.ok = err == nil
@@ -135,8 +137,6 @@ func (pc *pathCache) get(client *http.Client, url string) (*http.Response, []byt
 
 	return entry.resp, entry.body, entry.ok
 }
-
-// --- HTTP helpers ---
 
 func newHTTPClient() *http.Client {
 	return &http.Client{
@@ -162,7 +162,7 @@ func newHTTPClient() *http.Client {
 	}
 }
 
-func fetch(client *http.Client, url string) (*http.Response, []byte, error) {
+func fetchRaw(client *http.Client, url string) (*http.Response, []byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -180,6 +180,31 @@ func fetch(client *http.Client, url string) (*http.Response, []byte, error) {
 	resp.Body.Close()
 
 	return resp, body, nil
+}
+
+func fetchWithRetry(client *http.Client, url string, maxRetries int) (*http.Response, []byte, error) {
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		resp, body, err := fetchRaw(client, url)
+		if err == nil {
+			return resp, body, nil
+		}
+		lastErr = err
+		if attempt < maxRetries {
+			sleep := time.Duration(1<<uint(attempt)) * 100 * time.Millisecond
+			time.Sleep(sleep)
+		}
+	}
+	return nil, nil, lastErr
+}
+
+func isPortOpen(host string, port int, timeout time.Duration) bool {
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(port)), timeout)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
 }
 
 func isAlive(client *http.Client, url string) bool {
@@ -202,8 +227,6 @@ func isAlive(client *http.Client, url string) bool {
 	return true
 }
 
-// --- URL helpers ---
-
 func normalizeURL(target string) string {
 	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
 		return target
@@ -222,8 +245,6 @@ func buildRuleURL(base, path string) string {
 	}
 	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(path, "/")
 }
-
-// --- Target expansion ---
 
 func expandCIDR(targets []string) []string {
 	var out []string
@@ -250,7 +271,6 @@ func cidrToHosts(cidr string) []string {
 		all = append(all, ip.String())
 	}
 
-	// Skip network and broadcast for prefixes with > 2 hosts
 	if (bits-ones) > 1 && len(all) > 2 {
 		return all[1 : len(all)-1]
 	}
@@ -266,24 +286,28 @@ func incIP(ip net.IP) {
 	}
 }
 
-// --- Scanning ---
+func scanTarget(client *http.Client, target string, ports []int, maxRetries int) scanResult {
+	baseHost := target
 
-func scanTarget(client *http.Client, target string) scanResult {
-	url := normalizeURL(target)
+	for _, port := range ports {
+		if !isPortOpen(baseHost, port, 1*time.Second) {
+			continue
+		}
 
-	if !isAlive(client, url) {
-		return scanResult{}
+		url := fmt.Sprintf("http://%s:%d", baseHost, port)
+		if !isAlive(client, url) {
+			continue
+		}
+
+		brands := matchRules(client, url, maxRetries)
+		if len(brands) > 0 {
+			return scanResult{host: fmt.Sprintf("%s:%d", baseHost, port), brands: brands}
+		}
 	}
-
-	brands := matchRules(client, url)
-	if len(brands) == 0 {
-		return scanResult{}
-	}
-
-	return scanResult{host: displayHost(url), brands: brands}
+	return scanResult{}
 }
 
-func matchRules(client *http.Client, baseURL string) []string {
+func matchRules(client *http.Client, baseURL string, maxRetries int) []string {
 	cache := newPathCache()
 
 	var detected []string
@@ -300,7 +324,7 @@ func matchRules(client *http.Client, baseURL string) []string {
 			defer func() { <-sem }()
 
 			fullURL := buildRuleURL(baseURL, r.Path)
-			resp, body, ok := cache.get(client, fullURL)
+			resp, body, ok := cache.get(client, fullURL, maxRetries)
 			if !ok {
 				return
 			}
@@ -319,8 +343,6 @@ func matchRules(client *http.Client, baseURL string) []string {
 	wg.Wait()
 	return detected
 }
-
-// --- Condition evaluation ---
 
 func evaluateCondition(resp *http.Response, body []byte, rule Rule) bool {
 	if rule.Exclude != "" && bodyContains(body, rule.Exclude, rule.CaseSensitive) {
@@ -404,14 +426,18 @@ func findTitle(n *html.Node) string {
 	return ""
 }
 
-// --- I/O helpers ---
-
 func loadTargetsFromFile(path string) ([]string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
+	var f io.Reader
+	if path == "-" {
+		f = os.Stdin
+	} else {
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+		f = file
 	}
-	defer f.Close()
 
 	var targets []string
 	s := bufio.NewScanner(f)
@@ -423,37 +449,94 @@ func loadTargetsFromFile(path string) ([]string, error) {
 	return targets, s.Err()
 }
 
-func openCSV(path string, appendMode bool) (*csv.Writer, *os.File, error) {
-	var f *os.File
-	var err error
-
-	if appendMode {
-		f, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	} else {
-		f, err = os.Create(path)
+func loadRules(path string) ([]Rule, error) {
+	if path == "" {
+		return defaultRules, nil
 	}
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-
-	w := csv.NewWriter(f)
-	if !appendMode {
-		w.Write([]string{"Target", "Brands"})
-		w.Flush()
+	var cfg struct {
+		Rules []Rule `yaml:"rules"`
 	}
-
-	return w, f, nil
+	err = yaml.Unmarshal(data, &cfg)
+	if err != nil {
+		return nil, err
+	}
+	return cfg.Rules, nil
 }
 
-func printBanner() {
-	content := green.Render("CamTRON - Camera Scanner") + "\n" +
-		gray.Render("Automated Detection of Surveillance Devices") + "\n" +
-		green.Render("Coded By - K3ysTr0K3R")
-	fmt.Fprintln(os.Stderr, border.Render(content))
-	fmt.Fprintln(os.Stderr)
+func parsePorts(portStr string) []int {
+	if portStr == "" {
+		return []int{80}
+	}
+	parts := strings.Split(portStr, ",")
+	ports := make([]int, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if port, err := strconv.Atoi(p); err == nil && port > 0 && port < 65536 {
+			ports = append(ports, port)
+		}
+	}
+	if len(ports) == 0 {
+		return []int{80}
+	}
+	return ports
 }
 
-// --- CLI ---
+type Result struct {
+	Target string   `json:"target"`
+	Brands []string `json:"brands"`
+}
+
+type OutputWriter interface {
+	Write(result Result) error
+	Flush()
+}
+
+type CSVWriter struct {
+	w *csv.Writer
+}
+
+func NewCSVWriter(w io.Writer) *CSVWriter {
+	cw := csv.NewWriter(w)
+	cw.Write([]string{"Target", "Brands"})
+	cw.Flush()
+	return &CSVWriter{w: cw}
+}
+
+func (c *CSVWriter) Write(result Result) error {
+	return c.w.Write([]string{result.Target, strings.Join(result.Brands, ", ")})
+}
+
+func (c *CSVWriter) Flush() {
+	c.w.Flush()
+}
+
+type JSONWriter struct {
+	enc *json.Encoder
+}
+
+func NewJSONWriter(w io.Writer) *JSONWriter {
+	return &JSONWriter{enc: json.NewEncoder(w)}
+}
+
+func (j *JSONWriter) Write(result Result) error {
+	return j.enc.Encode(result)
+}
+
+func (j *JSONWriter) Flush() {}
+
+func formatHostWithColors(host string) string {
+	lastColon := strings.LastIndex(host, ":")
+	if lastColon == -1 {
+		return yellow.Render(host)
+	}
+	ipPart := host[:lastColon]
+	portPart := host[lastColon+1:]
+	return yellow.Render(ipPart) + green.Render(":") + cyan.Render(portPart)
+}
 
 func parseTargets(urlFlag, ipFlag, fileFlag string) ([]string, error) {
 	var targets []string
@@ -497,7 +580,7 @@ func startProgressTicker(bar progress.Model, total int, processed, found *atomic
 	return done
 }
 
-func runWorkers(client *http.Client, targets []string, threads int, writer *csv.Writer, processed, found *atomic.Int64) {
+func runWorkers(client *http.Client, targets []string, threads int, ports []int, maxRetries int, writer OutputWriter, processed, found *atomic.Int64) {
 	jobs := make(chan string, threads*2)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -507,7 +590,7 @@ func runWorkers(client *http.Client, targets []string, threads int, writer *csv.
 		go func() {
 			defer wg.Done()
 			for target := range jobs {
-				handleTarget(client, target, writer, &mu, found)
+				handleTarget(client, target, ports, maxRetries, writer, &mu, found)
 				processed.Add(1)
 			}
 		}()
@@ -520,29 +603,38 @@ func runWorkers(client *http.Client, targets []string, threads int, writer *csv.
 	wg.Wait()
 }
 
-func handleTarget(client *http.Client, target string, writer *csv.Writer, mu *sync.Mutex, found *atomic.Int64) {
-	result := scanTarget(client, target)
+func handleTarget(client *http.Client, target string, ports []int, maxRetries int, writer OutputWriter, mu *sync.Mutex, found *atomic.Int64) {
+	result := scanTarget(client, target, ports, maxRetries)
 	if result.host == "" {
 		return
 	}
 
 	found.Add(1)
-	brands := strings.Join(result.brands, ", ")
 
 	mu.Lock()
 	defer mu.Unlock()
 
 	fmt.Fprint(os.Stderr, "\r\033[K")
+	coloredHost := formatHostWithColors(result.host)
 	fmt.Fprintf(os.Stdout, "%s %s %s\n",
 		green.Render("[+]"),
-		yellow.Render(result.host),
-		purple.Render(brands))
+		coloredHost,
+		purple.Render(strings.Join(result.brands, ", ")))
 
-	if writer == nil {
-		return
+	if writer != nil {
+		writer.Write(Result{Target: result.host, Brands: result.brands})
+		writer.Flush()
 	}
-	writer.Write([]string{result.host, brands})
-	writer.Flush()
+}
+
+var rules []Rule
+
+func printBanner() {
+	content := green.Render("CamTRON - Camera Scanner") + "\n" +
+		gray.Render("Automated Detection of Surveillance Devices") + "\n" +
+		green.Render("Coded By - K3ysTr0K3R")
+	fmt.Fprintln(os.Stderr, border.Render(content))
+	fmt.Fprintln(os.Stderr)
 }
 
 func main() {
@@ -551,11 +643,24 @@ func main() {
 
 	urlFlag := flag.String("u", "", "Scan a single URL")
 	ipFlag := flag.String("ip", "", "Scan a single IP/CIDR")
-	fileFlag := flag.String("f", "", "File with targets (one per line)")
+	fileFlag := flag.String("f", "", "File with targets (one per line, use '-' for stdin)")
 	threads := flag.Int("t", 50, "Number of concurrent workers")
-	outputFlag := flag.String("o", "", "Output CSV file (optional)")
-	appendFlag := flag.Bool("append", false, "Append to output CSV instead of overwrite")
+	outputFlag := flag.String("o", "", "Output file (CSV or JSON, depending on -json)")
+	appendFlag := flag.Bool("append", false, "Append to output file instead of overwrite")
+	rulesFlag := flag.String("rules", "", "Path to YAML rules file (optional)")
+	portsFlag := flag.String("p", "80", "Comma-separated ports to scan (e.g., 80,443,8080)")
+	retriesFlag := flag.Int("retries", 3, "Number of retries for HTTP requests")
+	jsonFlag := flag.Bool("json", false, "Output in JSONL format instead of CSV")
 	flag.Parse()
+
+	var err error
+	rules, err = loadRules(*rulesFlag)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, red.Render(fmt.Sprintf("Error loading rules: %v", err)))
+		return
+	}
+
+	ports := parsePorts(*portsFlag)
 
 	targets, err := parseTargets(*urlFlag, *ipFlag, *fileFlag)
 	if err != nil {
@@ -569,17 +674,27 @@ func main() {
 	}
 
 	total := len(targets)
-	fmt.Fprintln(os.Stderr, cyan.Render(fmt.Sprintf("Loaded %d targets, scanning with %d workers", total, *threads)))
+	fmt.Fprintln(os.Stderr, cyan.Render(fmt.Sprintf("Loaded %d targets, scanning ports %v with %d workers", total, ports, *threads)))
 
-	var writer *csv.Writer
+	var writer OutputWriter
 	if *outputFlag != "" {
-		w, f, err := openCSV(*outputFlag, *appendFlag)
+		var f *os.File
+		if *appendFlag {
+			f, err = os.OpenFile(*outputFlag, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		} else {
+			f, err = os.Create(*outputFlag)
+		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, red.Render(fmt.Sprintf("Error opening output: %v", err)))
 			return
 		}
 		defer f.Close()
-		writer = w
+
+		if *jsonFlag {
+			writer = NewJSONWriter(f)
+		} else {
+			writer = NewCSVWriter(f)
+		}
 	}
 
 	client := newHTTPClient()
@@ -589,7 +704,7 @@ func main() {
 	startTime := time.Now()
 
 	done := startProgressTicker(bar, total, &processed, &found)
-	runWorkers(client, targets, *threads, writer, &processed, &found)
+	runWorkers(client, targets, *threads, ports, *retriesFlag, writer, &processed, &found)
 	close(done)
 
 	fmt.Fprintf(os.Stderr, "\r\033[K  %s %s\n",
