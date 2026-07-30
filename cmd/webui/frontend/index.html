@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CamTRON — Surveillance Device Reconnaissance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="scanlines-global" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">
+      <span class="brand-dot" id="brandDot"></span>
+    </div>
+    <div class="brand-text">
+      <h1>CamTRON</h1>
+      <p>Surveillance device reconnaissance console</p>
+    </div>
+  </div>
+  <div class="status-pill" id="statusPill" data-state="idle">
+    <span class="status-dot"></span>
+    <span id="statusLabel">IDLE</span>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- Control panel -->
+  <section class="panel config-panel" aria-label="Scan configuration">
+    <h2 class="panel-title"><span class="idx">01</span> Targets</h2>
+    <p class="panel-hint">One per line — IPs, CIDR ranges, hostnames, or URLs.</p>
+    <textarea id="targetsInput" spellcheck="false" placeholder="192.168.1.0/24&#10;10.0.0.15&#10;camera.example.com"></textarea>
+    <div class="field-row">
+      <span class="target-count" id="targetCount">0 targets queued</span>
+      <label class="file-btn">
+        Load file
+        <input type="file" id="fileInput" accept=".txt,.csv" hidden />
+      </label>
+    </div>
+
+    <h2 class="panel-title"><span class="idx">02</span> Ports</h2>
+    <div class="chip-row" id="portChips">
+      <button type="button" class="chip active" data-port="80">80</button>
+      <button type="button" class="chip" data-port="443">443</button>
+      <button type="button" class="chip" data-port="8080">8080</button>
+      <button type="button" class="chip" data-port="8000">8000</button>
+      <button type="button" class="chip" data-port="8081">8081</button>
+      <button type="button" class="chip" data-port="554">554</button>
+    </div>
+    <input id="portsCustom" class="text-input mono" placeholder="custom ports, e.g. 80,443,9000" />
+
+    <h2 class="panel-title"><span class="idx">03</span> Performance</h2>
+    <div class="slider-row">
+      <label for="threadsRange">Concurrency</label>
+      <input type="range" id="threadsRange" min="10" max="300" step="10" value="50" />
+      <span class="slider-value mono" id="threadsValue">50</span>
+    </div>
+    <div class="slider-row">
+      <label for="retriesRange">Retries</label>
+      <input type="range" id="retriesRange" min="0" max="5" step="1" value="3" />
+      <span class="slider-value mono" id="retriesValue">3</span>
+    </div>
+
+    <div class="auth-gate">
+      <label class="checkbox">
+        <input type="checkbox" id="authCheck" />
+        <span>I am authorized to scan these targets (my own network, or an engagement I'm authorized for).</span>
+      </label>
+    </div>
+
+    <div class="action-row">
+      <button id="startBtn" class="btn btn-primary" >Start scan</button>
+      <button id="cancelBtn" class="btn btn-ghost" disabled>Stop</button>
+    </div>
+    <p class="legal-note">For authorized security testing and asset discovery only. Scanning networks without permission may be illegal.</p>
+  </section>
+
+  <!-- Results -->
+  <section class="results-col">
+
+    <div class="stats-strip" aria-label="Scan statistics">
+      <div class="stat">
+        <span class="stat-label">Targets</span>
+        <span class="stat-value mono" id="statTotal">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Scanned</span>
+        <span class="stat-value mono" id="statScanned">0</span>
+      </div>
+      <div class="stat stat-accent">
+        <span class="stat-label">Devices found</span>
+        <span class="stat-value mono" id="statFound">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Elapsed</span>
+        <span class="stat-value mono" id="statElapsed">0.0s</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Rate</span>
+        <span class="stat-value mono" id="statRate">0/s</span>
+      </div>
+    </div>
+
+    <div class="progress-shell" aria-label="Scan progress">
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <span class="progress-pct mono" id="progressPct">0%</span>
+    </div>
+
+    <div class="wall-header">
+      <h2 class="panel-title"><span class="idx">04</span> Monitor wall</h2>
+      <div class="export-row">
+        <button class="btn btn-small" id="exportCsv" disabled>Export CSV</button>
+        <button class="btn btn-small" id="exportJson" disabled>Export JSON</button>
+      </div>
+    </div>
+
+    <div class="monitor-wall" id="monitorWall">
+      <div class="wall-empty" id="wallEmpty">
+        <div class="wall-empty-glyph">▢</div>
+        <p>No devices detected yet. Configure your targets and start a scan.</p>
+      </div>
+    </div>
+
+    <div class="terminal" aria-label="Live scan log">
+      <div class="terminal-bar">
+        <span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span>
+        <span class="terminal-title mono">camtron@scan — log</span>
+      </div>
+      <div class="terminal-body mono" id="terminalBody"></div>
+    </div>
+
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
