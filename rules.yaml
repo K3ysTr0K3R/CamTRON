@@ -1,0 +1,724 @@
+rules:
+  # ============================================================
+  # HIKVISION - Multiple fingerprints
+  # ============================================================
+  - brand: hikvision
+    path: /
+    condition: body=`doc/page/login.asp`
+    case_sensitive: false
+  - brand: hikvision
+    path: /
+    condition: body=`g_szCacheTime`&&body=`iVMS`
+    case_sensitive: false
+  - brand: hikvision
+    path: /
+    condition: headers=`Webs`
+    case_sensitive: false
+  - brand: hikvision
+    path: /
+    condition: headers=`APP-webs`
+    case_sensitive: false
+  - brand: hikvision
+    path: /
+    condition: headers=`DVRDVS-Webs`
+    case_sensitive: false
+  - brand: hikvision
+    path: /
+    condition: headers=`DNVRS-Webs`
+    case_sensitive: false
+  - brand: hikvision
+    path: /
+    condition: headers=`Hikvision-Webs`
+    case_sensitive: false
+  - brand: hikvision
+    path: /
+    condition: headers=`_goaheadwebSessionId`
+    case_sensitive: false
+  - brand: hikvision
+    path: /
+    condition: title=`hikvision`
+    case_sensitive: false
+  - brand: hikvision
+    path: /favicon.ico
+    condition: md5=`89b932fcc47cf4ca3faadb0cfdef89cf`
+    case_sensitive: true
+  - brand: hikvision
+    path: /favicon.ico
+    condition: md5=`f066b751b858f75ef46536f5b357972b`
+    case_sensitive: true
+  - brand: hikvision
+    path: /favicon.ico
+    condition: md5=`a2bbcf7a701534340e5a75f268b12b70`
+    case_sensitive: true
+  - brand: hikvision
+    path: /
+    condition: body=`Hikvision`&&body=`Web Components`
+    case_sensitive: false
+
+  # ============================================================
+  # DAHUA - Multiple fingerprints
+  # ============================================================
+  - brand: dahua
+    path: /
+    condition: body=`WEB SERVICE`
+    case_sensitive: false
+  - brand: dahua
+    path: /
+    condition: title=`WEB SERVICE`
+    case_sensitive: false
+  - brand: dahua
+    path: /favicon.ico
+    condition: md5=`bd9e17c46bbbc18af2a2bd718dddad0e`
+    case_sensitive: true
+  - brand: dahua
+    path: /favicon.ico
+    condition: md5=`605f51b413980667766a9aff2e53b9ed`
+    case_sensitive: true
+  - brand: dahua
+    path: /favicon.ico
+    condition: md5=`b39f249362a2e4ab62be4ddbc9125f53`
+    case_sensitive: true
+  - brand: dahua
+    path: /image/lgbg.jpg
+    condition: md5=`4ff53be6165e430af41d782e00207fda`
+    case_sensitive: true
+  - brand: dahua
+    path: /favicon.ico
+    condition: md5=`4b8e2b8bc7c41e6c4c567c66a5c5d8f2`
+    case_sensitive: true
+  - brand: dahua
+    path: /favicon.ico
+    condition: md5=`8e6b5e8a8c7d4f6e9a1b2c3d4e5f6a7b`
+    case_sensitive: true
+  - brand: dahua
+    path: /
+    condition: title=`Dahua Web Service`
+    case_sensitive: false
+  - brand: dahua
+    path: /
+    condition: headers=`DSSWEB`
+    case_sensitive: false
+
+  # ============================================================
+  # AXIS - Multiple fingerprints
+  # ============================================================
+  - brand: axis
+    path: /favicon.ico
+    condition: md5=`a3fd8705f010b90e37d42128000f620b`
+    case_sensitive: true
+  - brand: axis
+    path: /favicon.ico
+    condition: md5=`b39f249362a2e4ab62be4ddbc9125f53`
+    case_sensitive: true
+  - brand: axis
+    path: /
+    condition: title=`Axis`&&title=`Network Camera`
+    case_sensitive: false
+  - brand: axis
+    path: /
+    condition: headers=`Axis`
+    case_sensitive: false
+  - brand: axis
+    path: /
+    condition: body=`axis-cgi`
+    case_sensitive: false
+  - brand: axis
+    path: /
+    condition: body=`AXIS Media Control`
+    case_sensitive: false
+
+  # ============================================================
+  # CCTV / Generic Camera fingerprints
+  # ============================================================
+  - brand: cctv
+    path: /
+    condition: body=`IP Surveillance for Your Life`
+    case_sensitive: false
+  - brand: cctv
+    path: /
+    condition: body=`/nobody/loginDevice.js`
+    case_sensitive: false
+  - brand: cctv
+    path: /
+    condition: headers=`JAWS`
+    case_sensitive: false
+  - brand: cctv
+    path: /favicon.ico
+    condition: md5=`f066b751b858f75ef46536f5b357972b`
+    case_sensitive: true
+
+  # ============================================================
+  # AVTECH
+  # ============================================================
+  - brand: avtech
+    path: /
+    condition: title=`::: Login :::`
+    case_sensitive: false
+  - brand: avtech
+    path: /
+    condition: title=`Remote Surveillance`&&title=`Any time & Any where`
+    case_sensitive: false
+  - brand: avtech
+    path: /nobody/favicon.ico
+    condition: md5=`6a7e13b3f9197a383c96618fe32e345a`
+    case_sensitive: true
+
+  # ============================================================
+  # DLINK
+  # ============================================================
+  - brand: dlink
+    path: /
+    condition: headers=`realm=\"DCS`
+    case_sensitive: false
+  - brand: dlink
+    path: /
+    condition: headers=`realm=DCS`
+    case_sensitive: false
+  - brand: dlink
+    path: /
+    condition: title=`D-Link`&&title=`Camera`
+    case_sensitive: false
+  - brand: dlink
+    path: /
+    condition: body=`D-Link IP Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # TPLINK
+  # ============================================================
+  - brand: tplink
+    path: /
+    condition: title=`TP-Link`&&title=`Camera`
+    case_sensitive: false
+  - brand: tplink
+    path: /
+    condition: body=`TP-Link Cloud Camera`
+    case_sensitive: false
+  - brand: tplink
+    path: /
+    condition: body=`TP-LINK Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # FOSCAM
+  # ============================================================
+  - brand: foscam
+    path: /
+    condition: title=`Foscam`&&title=`Camera`
+    case_sensitive: false
+  - brand: foscam
+    path: /
+    condition: body=`Foscam IP Camera`
+    case_sensitive: false
+  - brand: foscam
+    path: /
+    condition: headers=`Foscam`
+    case_sensitive: false
+
+  # ============================================================
+  # REOLINK
+  # ============================================================
+  - brand: reolink
+    path: /
+    condition: title=`Reolink`
+    case_sensitive: false
+  - brand: reolink
+    path: /
+    condition: body=`Reolink Camera`
+    case_sensitive: false
+  - brand: reolink
+    path: /
+    condition: body=`reolink`
+    case_sensitive: false
+
+  # ============================================================
+  # VIVOTEK
+  # ============================================================
+  - brand: vivotek
+    path: /
+    condition: title=`VIVOTEK`
+    case_sensitive: false
+  - brand: vivotek
+    path: /
+    condition: body=`VIVOTEK`
+    case_sensitive: false
+  - brand: vivotek
+    path: /
+    condition: headers=`VIVOTEK`
+    case_sensitive: false
+
+  # ============================================================
+  # SONY
+  # ============================================================
+  - brand: sony
+    path: /
+    condition: title=`Sony`&&title=`Camera`
+    case_sensitive: false
+  - brand: sony
+    path: /
+    condition: body=`Sony IP Camera`
+    case_sensitive: false
+  - brand: sony
+    path: /
+    condition: body=`Sony Network Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # PANASONIC
+  # ============================================================
+  - brand: panasonic
+    path: /
+    condition: title=`Panasonic`&&title=`Camera`
+    case_sensitive: false
+  - brand: panasonic
+    path: /
+    condition: body=`Panasonic Network Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # SAMSUNG
+  # ============================================================
+  - brand: samsung
+    path: /
+    condition: title=`Samsung`&&title=`Camera`
+    case_sensitive: false
+  - brand: samsung
+    path: /
+    condition: body=`Samsung Techwin`
+    case_sensitive: false
+  - brand: samsung
+    path: /
+    condition: body=`Samsung IP Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # BOSCH
+  # ============================================================
+  - brand: bosch
+    path: /
+    condition: title=`Bosch`&&title=`Camera`
+    case_sensitive: false
+  - brand: bosch
+    path: /
+    condition: body=`Bosch Security Systems`
+    case_sensitive: false
+  - brand: bosch
+    path: /
+    condition: headers=`Bosch`
+    case_sensitive: false
+
+  # ============================================================
+  # MOBOTIX
+  # ============================================================
+  - brand: mobotix
+    path: /
+    condition: title=`Mobotix`
+    case_sensitive: false
+  - brand: mobotix
+    path: /
+    condition: body=`Mobotix Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # TENDRA / TENDA
+  # ============================================================
+  - brand: tenda
+    path: /
+    condition: title=`Tenda | login`
+    case_sensitive: false
+  - brand: tenda
+    path: /
+    condition: title=`Tenda|login`
+    case_sensitive: false
+  - brand: tenda
+    path: /
+    condition: title=`Tenda | 登录`
+    case_sensitive: false
+  - brand: tenda
+    path: /
+    condition: title=`Tenda|登录`
+    case_sensitive: false
+  - brand: tenda
+    path: /
+    condition: title=`Tenda | Web Master`
+    case_sensitive: false
+  - brand: tenda
+    path: /
+    condition: title=`Tenda | Wireless Router`
+    case_sensitive: false
+  - brand: tenda
+    path: /favicon.ico
+    condition: md5=`fa31b29eab2da688b11d8fafc5fc6b27`
+    case_sensitive: true
+
+  # ============================================================
+  # UNIVIEW
+  # ============================================================
+  - brand: uniview
+    path: /favicon.ico
+    condition: md5=`1536f25632f78fb03babedcb156d3f69`
+    case_sensitive: true
+  - brand: uniview
+    path: /skin/default_1/images/logo.png
+    condition: md5=`c30a692ad0d1324389485de06c96d9b8`
+    case_sensitive: true
+  - brand: uniview
+    path: /
+    condition: title=`Uniview`
+    case_sensitive: false
+
+  # ============================================================
+  # XIONGMAI
+  # ============================================================
+  - brand: xiongmai
+    path: /
+    condition: title=`NETSurveillance WEB`
+    case_sensitive: false
+  - brand: xiongmai
+    path: /
+    condition: title=`NetSurveillance WEB`
+    case_sensitive: false
+  - brand: xiongmai
+    path: /
+    condition: body=`Xiongmai`
+    case_sensitive: false
+
+  # ============================================================
+  # GEOLVISION / GEOVISION
+  # ============================================================
+  - brand: geovision
+    path: /
+    condition: title=`GeoVision`
+    case_sensitive: false
+  - brand: geovision
+    path: /
+    condition: body=`GeoVision`
+    case_sensitive: false
+
+  # ============================================================
+  # DVR / Generic DVR
+  # ============================================================
+  - brand: dvr
+    path: /login.rsp
+    condition: title=`LOGIN`
+    case_sensitive: false
+  - brand: dvr
+    path: /
+    condition: title=`DVR Login`
+    case_sensitive: false
+  - brand: dvr
+    path: /
+    condition: body=`DVR`
+    case_sensitive: false
+
+  # ============================================================
+  # IPCAMERA (Generic)
+  # ============================================================
+  - brand: ipcamera
+    path: /
+    condition: headers=`IPCamera`&&status_code=`401`
+    case_sensitive: false
+  - brand: ipcamera
+    path: /
+    condition: title=`IP Camera`
+    case_sensitive: false
+  - brand: ipcamera
+    path: /
+    condition: body=`IP Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # NETWAVE
+  # ============================================================
+  - brand: netwave
+    path: /
+    condition: headers=`Netwave IP Camera`
+    case_sensitive: false
+  - brand: netwave
+    path: /
+    condition: title=`Netwave`
+    case_sensitive: false
+
+  # ============================================================
+  # NUUO
+  # ============================================================
+  - brand: nuuo
+    path: /
+    condition: title=`network video recorder login`
+    case_sensitive: false
+  - brand: nuuo
+    path: /
+    condition: body=`NUUO`
+    case_sensitive: false
+
+  # ============================================================
+  # REECAM
+  # ============================================================
+  - brand: reecam
+    path: /
+    condition: headers=`ReeCam IP Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # INSTAR
+  # ============================================================
+  - brand: instar
+    path: /
+    condition: title=`INSTAR`&&title=`Camera`
+    case_sensitive: false
+  - brand: instar
+    path: /
+    condition: body=`INSTAR`
+    case_sensitive: false
+
+  # ============================================================
+  # EASYN
+  # ============================================================
+  - brand: easyn
+    path: /
+    condition: title=`EasyN`
+    case_sensitive: false
+  - brand: easyn
+    path: /
+    condition: body=`EasyN Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # EDIMAX
+  # ============================================================
+  - brand: edimax
+    path: /
+    condition: title=`Edimax`
+    case_sensitive: false
+  - brand: edimax
+    path: /
+    condition: body=`Edimax IP Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # TRENDNET
+  # ============================================================
+  - brand: trendnet
+    path: /
+    condition: title=`TRENDnet`
+    case_sensitive: false
+  - brand: trendnet
+    path: /
+    condition: body=`TRENDnet Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # INTELLINET
+  # ============================================================
+  - brand: intellinet
+    path: /
+    condition: title=`Intellinet`
+    case_sensitive: false
+  - brand: intellinet
+    path: /
+    condition: body=`Intellinet Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # CP PLUS
+  # ============================================================
+  - brand: cpplus
+    path: /
+    condition: title=`CP Plus`
+    case_sensitive: false
+  - brand: cpplus
+    path: /
+    condition: body=`CP Plus Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # LOREX
+  # ============================================================
+  - brand: lorex
+    path: /
+    condition: title=`Lorex`
+    case_sensitive: false
+  - brand: lorex
+    path: /
+    condition: body=`Lorex Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # ZOSI
+  # ============================================================
+  - brand: zosi
+    path: /
+    condition: title=`Zosi`
+    case_sensitive: false
+  - brand: zosi
+    path: /
+    condition: body=`Zosi Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # SWANN
+  # ============================================================
+  - brand: swann
+    path: /
+    condition: title=`Swann`
+    case_sensitive: false
+  - brand: swann
+    path: /
+    condition: body=`Swann Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # ANNKE
+  # ============================================================
+  - brand: annke
+    path: /
+    condition: title=`Annke`
+    case_sensitive: false
+  - brand: annke
+    path: /
+    condition: body=`Annke Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # AMCREST
+  # ============================================================
+  - brand: amcrest
+    path: /
+    condition: title=`Amcrest`
+    case_sensitive: false
+  - brand: amcrest
+    path: /
+    condition: body=`Amcrest Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # WYZE
+  # ============================================================
+  - brand: wyze
+    path: /
+    condition: title=`Wyze`
+    case_sensitive: false
+  - brand: wyze
+    path: /
+    condition: body=`Wyze Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # EZVIZ
+  # ============================================================
+  - brand: ezviz
+    path: /
+    condition: title=`EZVIZ`
+    case_sensitive: false
+  - brand: ezviz
+    path: /
+    condition: body=`EZVIZ Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # IMOU
+  # ============================================================
+  - brand: imou
+    path: /
+    condition: title=`Imou`
+    case_sensitive: false
+  - brand: imou
+    path: /
+    condition: body=`Imou Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # LILIN
+  # ============================================================
+  - brand: lilin
+    path: /
+    condition: title=`LILIN`
+    case_sensitive: false
+  - brand: lilin
+    path: /
+    condition: body=`LILIN Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # ACTI
+  # ============================================================
+  - brand: acti
+    path: /
+    condition: title=`ACTi`
+    case_sensitive: false
+  - brand: acti
+    path: /
+    condition: body=`ACTi Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # AREONT
+  # ============================================================
+  - brand: arecont
+    path: /
+    condition: title=`Arecont`
+    case_sensitive: false
+  - brand: arecont
+    path: /
+    condition: body=`Arecont Camera`
+    case_sensitive: false
+
+  # ============================================================
+  # WEBCAMXP - Webcam streaming software
+  # ============================================================
+  - brand: webcamxp
+    path: /
+    condition: title=`webcamXP`
+    case_sensitive: false
+  - brand: webcamxp
+    path: /
+    condition: body=`webcamXP`
+    case_sensitive: false
+  - brand: webcamxp
+    path: /
+    condition: body=`webcamxp`
+    case_sensitive: false
+  - brand: webcamxp
+    path: /
+    condition: title=`webcamXP 5`
+    case_sensitive: false
+  - brand: webcamxp
+    path: /
+    condition: body=`WebcamXP Server`
+    case_sensitive: false
+  - brand: webcamxp
+    path: /
+    condition: headers=`webcamXP`
+    case_sensitive: false
+
+  # ============================================================
+  # GENERIC / Fallback detection
+  # ============================================================
+  - brand: camera
+    path: /
+    condition: title=`Camera`
+    case_sensitive: false
+  - brand: camera
+    path: /
+    condition: body=`/cgi-bin/`
+    case_sensitive: false
+  - brand: camera
+    path: /
+    condition: body=`/snapshot.cgi`
+    case_sensitive: false
+  - brand: camera
+    path: /
+    condition: body=`/video.cgi`
+    case_sensitive: false
+  - brand: camera
+    path: /
+    condition: body=`/stream.cgi`
+    case_sensitive: false
+  - brand: camera
+    path: /
+    condition: body=`mjpg`
+    case_sensitive: false
+  - brand: camera
+    path: /
+    condition: body=`mjpeg`
+    case_sensitive: false
